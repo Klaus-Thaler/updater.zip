@@ -195,11 +195,11 @@ MAIN() {
     UI_PRINT "update-binary" "--------------------"
     UI_PRINT "start" "--------------------" " "
 # check if we have device requirements
-	#CheckRequirements
+	CheckRequirements
 	 
 # tests
 	UI_PRINT "/system -> $SYSTEM_PARTITION"
-    UI_PRINT "/vendor -> $VENDOR_PARTITION"
+    	UI_PRINT "/vendor -> $VENDOR_PARTITION"
 	UI_PRINT "/product-> $PRODUCT_PARTITION"
 	UI_PRINT "/data -> $DATA_PARTITION"
 	UI_PRINT "/recovery -> $RECOVERY_PARTITION"
@@ -218,8 +218,8 @@ MAIN() {
 	#UI_PRINT "okay"
 # dd dump a partition
 	UI_PRINT "dd system" "wait ..." "--------------------" " "
-    #UI_PRINT $(ls /sdcard1)
-    #$BUSYBOX dd if=$SYSTEM_PARTITION of=/sdcard1/dd.img bs=1M
+    	#UI_PRINT $(ls /sdcard1)
+    	#$BUSYBOX dd if=$SYSTEM_PARTITION of=/sdcard1/dd.img bs=1M
 	#UI_PRINT "okay"
 # Finish
 	UI_PRINT "- Finished"
