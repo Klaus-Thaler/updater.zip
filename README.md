@@ -1,7 +1,7 @@
 # updater.zip
 
-universal update-binary script.
+universal update-binary script. \n\n
 
-META-INF/com/google/android/update-binary
-META-INF/com/google/android/updater-script
+META-INF/com/google/android/update-binary \n
+META-INF/com/google/android/updater-script \n
 tools/busybox
