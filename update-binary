@@ -102,10 +102,9 @@ FILE_SIZE() {
 }
 ###### partitions #########
 # target partition
-# ask the recovery for boot/recovery partition
-$BUSYBOX unzip /cache/recovery/last_log.gz -o /tmp
+# ask the recovery for recovery partition
 RECOVERY_PARTITION=$($BUSYBOX cat /cache/recovery/recovery.fstab |$(FIND_GREP) -m1 ^/recovery |$BUSYBOX tr -s '\t' |$BUSYBOX cut -f3)
-# # ask the recovery log for boot partition
+# # ask the recovery for boot partition
 BOOT_PARTITION=$($BUSYBOX cat /cache/recovery/recovery.fstab |$(FIND_GREP) -m1 ^/boot |$BUSYBOX tr -s '\t' |$BUSYBOX cut -f3)
 # default system mount point
 SYSTEM_PARTITION=$($BUSYBOX cat /etc/fstab | $(FIND_GREP) -m1 /system | $BUSYBOX cut -d ' ' -f1)
