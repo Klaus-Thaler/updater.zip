@@ -1,0 +1,231 @@
+#!/sbin/sh
+# *********************************************
+# Description: universal update-binary Script
+# Device: Samsung sm-a202f
+# Author: 	Klaus Thaler
+# Date: 	15.09.2023
+# *********************************************
+
+# glodal defaults
+# VEND_DIR="/vendor"
+# SYS_DIR="/system"
+VEND_DIR="/mnt/vendor"
+SYS_DIR="/mnt/system"
+SYS_ROOT="$SYS_DIR"
+# global error code (0=good; 1=error)
+ERROR_CODE=0
+
+###### this device #######
+# the target device(s)
+TARGET_DEVICE="kminilte"
+# getprop
+GETPROP=$(which getprop)
+if [ -z "$GETPROP" ]; then
+   GETPROP=/system/bin/getprop
+   [ ! -e "$GETPROP" ] && GETPROP=/sbin/getprop
+fi
+# the current device's codename
+PRODUCT_DEVICE=$($GETPROP "ro.product.device")
+
+###### the current zip installer ######
+# current zip file
+ZIPFILE="$3"
+# the zip extract directory
+EX_DIR=/tmp
+# unzip the installer package into /tmp
+Unzip_Installer_Package() {
+   cd /tmp
+   mkdir -p $EX_DIR
+   cd $EX_DIR
+   unzip -o "$ZIPFILE"
+}
+
+##### Tools ######
+BUSYBOX=$(which busybox)
+if [ -z "$BUSYBOX" ]; then
+   BUSYBOX=/system/bin/busybox
+   [ ! -e "$BUSYBOX" ] && BUSYBOX=/sbin/busybox
+   [ ! -e "$BUSYBOX" ] && BUSYBOX=/tmp/tools/busybox
+fi
+FLASH_IMAGE=$(which flash_image)
+if [ -z "$FLASH_IMAGE" ]; then
+   FLASH_IMAGE=/system/bin/flash_image
+   [ ! -e "$FLASH_IMAGE" ] && FLASH_IMAGE=/sbin/flash_image
+fi
+ERASE_IMAGE=$(which erase_image)
+if [ -z "$ERASE_IMAGE" ]; then
+   ERASE_IMAGE=/system/bin/erase_image
+   [ ! -e "$ERASE_IMAGE" ] && ERASE_IMAGE=/sbin/erase_image
+fi
+PACKAGE_EXTRACT_DIR() {
+   if [ -d $EX_DIR/$1 ]; then
+      cp -a $EX_DIR/$1/* $2
+   else
+      UI_PRINT "Invalid directory: $1"
+   fi
+} 
+PACKAGE_EXTRACT_FILE() {
+   if [ -e $EX_DIR/$1 ]; then
+      dd if=$EX_DIR/$1 of=$2
+   else
+      UI_PRINT "Invalid file: $1"   
+   fi 
+}
+
+# avoid the standalone BSD grep, which segfaults on "grep -w"
+FIND_GREP() {
+    local GREP=$(which grep)
+    local F=/prop.default
+    if [ ! -e $F ]; then
+        F=/default.prop
+        [ ! -e $F ] && F=/tmp/recovery.log
+    fi
+    if [ ! -L $GREP ]; then
+        GREP=""
+        if [ -x $BUSYBOX ]; then
+            GREP="$BUSYBOX grep"
+	        $GREP -q build $F > /dev/null 2>&1 || GREP=""
+        fi
+     [ -z "$GREP" ] && GREP=/system/bin/grep
+     [ -z "$GREP" ] && GREP="$BUSYBOX grep"
+    fi
+    echo "$GREP"
+}
+# print the size of a file
+FILE_SIZE() {
+  if [ -f $1 ]; then
+     set -- $(ls -l "$1"); echo "$5"
+     # stat -c %s "$1"
+  else
+     echo "0"
+  fi
+}
+###### partitions #########
+# target partition
+# ask the recovery for boot/recovery partition
+$BUSYBOX unzip /cache/recovery/last_log.gz -o /tmp
+RECOVERY_PARTITION=$($BUSYBOX cat /cache/recovery/recovery.fstab |$(FIND_GREP) -m1 ^/recovery |$BUSYBOX tr -s '\t' |$BUSYBOX cut -f3)
+# # ask the recovery log for boot partition
+BOOT_PARTITION=$($BUSYBOX cat /cache/recovery/recovery.fstab |$(FIND_GREP) -m1 ^/boot |$BUSYBOX tr -s '\t' |$BUSYBOX cut -f3)
+# default system mount point
+SYSTEM_PARTITION=$($BUSYBOX cat /etc/fstab | $(FIND_GREP) -m1 /system | $BUSYBOX cut -d ' ' -f1)
+# default vendor mount point
+VENDOR_PARTITION=$($BUSYBOX cat /etc/fstab | $(FIND_GREP) -m1 /vendor | $BUSYBOX cut -d ' ' -f1)
+# default product mount point
+PRODUCT_PARTITION=$($BUSYBOX cat /etc/fstab | $(FIND_GREP) -m1 /product | $BUSYBOX cut -d ' ' -f1)
+# default data mount point
+DATA_PARTITION=$($BUSYBOX cat /etc/fstab | $(FIND_GREP) -m1 /data | $BUSYBOX cut -d ' ' -f1)
+
+###### Display ######
+# the display screen
+SCREEN=/proc/self/fd/$2
+# UI_PRINT "color" "<message>" ["<message 2>" ...]
+UI_PRINT() {
+  until [ ! "$1" ]; do
+    echo -e "ui_print $1\nui_print" >> $SCREEN
+    shift
+  done
+}
+# ABORT [<message>]
+ABORT() { 
+   UI_PRINT "$*"
+   ERROR_CODE=1
+   exit 1
+}
+
+###### functions #######
+# check if we have specified a target device and whether this is it
+CheckRequirements() {
+   local GREP=$(FIND_GREP)
+   local F=$(echo "$PRODUCT_DEVICE" | $GREP -w "$TARGET_DEVICE")
+   if [ -n "$F" ]; then
+       UI_PRINT "- Okay for $TARGET_DEVICE ..."
+   else
+       ABORT "E3004: This package is for $TARGET_DEVICE. This device ($PRODUCT_DEVICE) is not supported."
+   fi
+   UI_PRINT "VNDK Version: $($GETPROP ro.vndk.version)"
+}
+# unmount a partition, if mounted
+# umount_part <partition>
+umount_part() {
+  if [ -z "$1" ]; then
+     return
+  fi
+  local F=$(is_mounted "$1")
+  if [ "$F" = "1" ]; then
+     umount "$1" > /dev/null 2>&1
+  fi
+}
+# unmount everything that we mounted
+UnMountThemAll() {
+   umount_part "$SYS_ROOT" > /dev/null 2>&1
+   umount_part "$SYS_DIR" > /dev/null 2>&1
+   umount_part "$VEND_DIR" > /dev/null 2>&1
+   umount_part "/cache" > /dev/null 2>&1
+   umount_part "/persist" > /dev/null 2>&1
+   umount_part "/data" > /dev/null 2>&1
+}
+
+# install the system
+Install_System() {
+    local PART=$(readlink -f $SYSTEM_PARTITION)
+    # get the size of the partition
+    local oldF=$(blockdev --getsize64 $PART) > /dev/null 2>&1    
+    # get the size of the image
+    local newF=$(FILE_SIZE system.img)
+    UI_PRINT "- Partition Size=$oldF bytes"
+    UI_PRINT "- System    Size=$newF bytes"
+    [ $newF -gt $oldF ] && {
+        ABORT "The image ($newF bytes) is bigger than partition ($oldF bytes)! Quitting."
+    }
+    if [ -x "$FLASH_IMAGE" ] && [ -x "$ERASE_IMAGE" ]; then
+        UI_PRINT "- Cleaning the partition ($PART)"
+        $ERASE_IMAGE "$PART"
+        [ $? == 0 ] && UI_PRINT "- Succeeded." || UI_PRINT "- Failed."
+        UI_PRINT "- Flashing image ..."
+        #$FLASH_IMAGE "$PART" "system.img"
+        #PACKAGE_EXTRACT_FILE "system.img" "$PART"
+    fi  
+    return
+}
+
+# main function
+MAIN() {
+    UI_PRINT "********************" 
+    UI_PRINT "update-binary" "--------------------"
+    UI_PRINT "start" "--------------------" " "
+# check if we have device requirements
+	#CheckRequirements
+	 
+# tests
+	UI_PRINT "/system -> $SYSTEM_PARTITION"
+    UI_PRINT "/vendor -> $VENDOR_PARTITION"
+	UI_PRINT "/product-> $PRODUCT_PARTITION"
+	UI_PRINT "/data -> $DATA_PARTITION"
+	UI_PRINT "/recovery -> $RECOVERY_PARTITION"
+	UI_PRINT "/boot -> $BOOT_PARTITION"
+	
+# extract the zip installer
+	UI_PRINT "unzip tools"
+	Unzip_Installer_Package
+	UI_PRINT "okay"
+# umount
+	UI_PRINT "unmount all"
+	UnMountThemAll
+	UI_PRINT "okay"
+# install image
+    #Install_System
+	#UI_PRINT "okay"
+# dd dump a partition
+	UI_PRINT "dd system" "wait ..." "--------------------" " "
+    #UI_PRINT $(ls /sdcard1)
+    #$BUSYBOX dd if=$SYSTEM_PARTITION of=/sdcard1/dd.img bs=1M
+	#UI_PRINT "okay"
+# Finish
+	UI_PRINT "- Finished"
+
+} # end Main(); 
+
+# --
+MAIN
+# --
