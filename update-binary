@@ -17,7 +17,7 @@ ERROR_CODE=0
 
 ###### this device #######
 # the target device(s)
-TARGET_DEVICE="kminilte"
+TARGET_DEVICE="a20e"
 # getprop
 GETPROP=$(which getprop)
 if [ -z "$GETPROP" ]; then
